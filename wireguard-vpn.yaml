@@ -1,0 +1,46 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: WireGuard VPN Server on Amazon Linux 2
+
+Parameters:
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::my-ipad-kwy
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+  SecurityGroupId:
+    Type: String
+    Description: Security Group ID to assign to the VPN server (must allow UDP 51820)
+
+Resources:
+  WireGuardInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      KeyName: !Ref KeyPairName
+      SecurityGroupIds:
+        - !Ref SecurityGroupId
+      ImageId: ami-0a4d4e35a12377e3a # Amazon Linux 2 AMI in eu-north-1 (Stockholm) (güncel olmayabilir, kontrol et)
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          amazon-linux-extras install -y epel
+          yum install -y wireguard-tools wireguard-dkms
+          sysctl -w net.ipv4.ip_forward=1
+          echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
+          wg genkey | tee /etc/wireguard/privatekey | wg pubkey > /etc/wireguard/publickey
+          PRIVATE_KEY=$(cat /etc/wireguard/privatekey)
+          PUBLIC_KEY=$(cat /etc/wireguard/publickey)
+          echo "[Interface]" > /etc/wireguard/wg0.conf
+          echo "Address = 10.0.0.1/24" >> /etc/wireguard/wg0.conf
+          echo "ListenPort = 51820" >> /etc/wireguard/wg0.conf
+          echo "PrivateKey = $PRIVATE_KEY" >> /etc/wireguard/wg0.conf
+          systemctl enable wg-quick@wg0
+          systemctl start wg-quick@wg0
+          echo "VPN Kuruldu" > /home/ec2-user/install.log
+
+Outputs:
+  InstanceId:
+    Description: Instance ID of the VPN server
+    Value: !Ref WireGuardInstance
+  PublicIp:
+    Description: Public IP address of the VPN server
+    Value: !GetAtt WireGuardInstance.PublicIp
